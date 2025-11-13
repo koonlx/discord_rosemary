@@ -27,6 +27,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       channel,
       content: config.pinnedMessage,
       botUserId: readyClient.user.id,
+      buttons: config.pinnedButtons,
     });
 
     if (alreadyPinned) {

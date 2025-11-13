@@ -10,6 +10,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "discord.js": "^14.24.2"
+    "better-sqlite3": "^9.4.3",
+    "discord.js": "^14.24.2",
+    "drizzle-orm": "^0.33.0"
   }
 }

@@ -1,7 +1,8 @@
 const { Client, Events } = require('discord.js');
 const config = require('./lib/config');
-const { ensurePinnedMessage } = require('./lib/pinned-message');
 const { cleanBotActivity } = require('./lib/activity-cleanup');
+const { ensurePinnedMessage } = require('./lib/pinned-message');
+const { fetchRecruitCountsByKind } = require('./lib/party-counts');
 
 const client = new Client({ intents: config.clientIntents });
 
@@ -23,11 +24,17 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.log(`Deleted ${deletedCount} previous bot messages.`);
     }
 
+    const countsByKind = await fetchRecruitCountsByKind();
+    const buttonsWithCounts = config.pinnedButtons.map((button) => ({
+      ...button,
+      count: countsByKind.get(button.kind) ?? 0,
+    }));
+
     const { alreadyPinned, message } = await ensurePinnedMessage({
       channel,
       content: config.pinnedMessage,
       botUserId: readyClient.user.id,
-      buttons: config.pinnedButtons,
+      buttons: buttonsWithCounts,
     });
 
     if (alreadyPinned) {

@@ -15,6 +15,7 @@ const {
   fetchPartyRecruitEntryById,
   updatePartyRecruitEntry,
   deletePartyRecruitEntry,
+  joinPartyRecruit,
 } = require('../lib/party-recruit-service');
 const { refreshPinnedMessage } = require('../lib/pinned-message-refresh');
 
@@ -29,6 +30,8 @@ const PARTY_HUNTING_EDIT_BUTTON_ID = 'party-hunting-edit';
 const PARTY_HUNTING_DELETE_BUTTON_ID = 'party-hunting-delete';
 const PARTY_HUNTING_EDIT_SELECT_ID = 'party-hunting-edit-select';
 const PARTY_HUNTING_DELETE_SELECT_ID = 'party-hunting-delete-select';
+const PARTY_HUNTING_JOIN_BUTTON_ID = 'party-hunting-join';
+const PARTY_HUNTING_JOIN_SELECT_ID = 'party-hunting-join-select';
 const PARTY_HUNTING_EDIT_MODAL_PREFIX = 'party-hunting-modal-edit:';
 const PARTY_LIST_LIMIT = 10;
 
@@ -78,6 +81,18 @@ const translateRecruitError = (error) => {
     return '본인이 등록한 모집글만 관리할 수 있어요.';
   }
 
+  if (message.includes('join your own')) {
+    return '본인이 등록한 모집에는 신청할 수 없어요.';
+  }
+
+  if (message.includes('already full')) {
+    return '이미 인원이 가득 찬 파티예요.';
+  }
+
+  if (message.includes('already joined')) {
+    return '이미 신청한 파티예요.';
+  }
+
   if (message.includes('Member limit')) {
     return '현재 인원보다 작은 인원 제한으로는 수정할 수 없어요.';
   }
@@ -85,16 +100,27 @@ const translateRecruitError = (error) => {
   return null;
 };
 
-const ensureEphemeralReply = async (interaction) => {
+const isMessageComponentInteraction = (interaction) => {
+  const isButton = typeof interaction.isButton === 'function' && interaction.isButton();
+  const isSelect = typeof interaction.isStringSelectMenu === 'function' && interaction.isStringSelectMenu();
+  return isButton || isSelect;
+};
+
+const ensureEphemeralReply = async (interaction, { preferUpdate = false } = {}) => {
   if (interaction.deferred || interaction.replied) {
+    return;
+  }
+
+  if (preferUpdate && isMessageComponentInteraction(interaction)) {
+    await interaction.deferUpdate();
     return;
   }
 
   await interaction.deferReply({ ephemeral: true });
 };
 
-const sendEphemeralResponse = async (interaction, payload) => {
-  await ensureEphemeralReply(interaction);
+const sendEphemeralResponse = async (interaction, payload, options) => {
+  await ensureEphemeralReply(interaction, options);
   await interaction.editReply(payload);
 };
 
@@ -118,6 +144,10 @@ const buildPartyListComponents = () => [
       .setCustomId(PARTY_HUNTING_CREATE_BUTTON_ID)
       .setLabel('파티 모집하기')
       .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(PARTY_HUNTING_JOIN_BUTTON_ID)
+      .setLabel('파티 신청하기')
+      .setStyle(ButtonStyle.Success),
   ),
   new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -174,6 +204,14 @@ const fetchUserRecruits = async (interaction) =>
     kind: partyHuntingKind,
   });
 
+const filterJoinableEntries = (entries, discordUserId) =>
+  entries.filter(
+    (entry) =>
+      entry.userDiscordId !== String(discordUserId)
+      && entry.memberCount < entry.memberLimit
+      && !entry.isCompleted,
+  );
+
 const promptEditSelection = async (interaction, entries) => {
   await sendEphemeralResponse(interaction, {
     content: '✏️ 수정할 모집글을 선택해주세요.',
@@ -184,7 +222,7 @@ const promptEditSelection = async (interaction, entries) => {
         entries,
       }),
     ],
-  });
+  }, { preferUpdate: true });
 };
 
 const handleEditButton = async (interaction) => {
@@ -195,7 +233,7 @@ const handleEditButton = async (interaction) => {
       await sendEphemeralResponse(interaction, {
         content: '✏️ 작성한 파티 사냥 모집글이 없어요.',
         components: [],
-      });
+      }, { preferUpdate: true });
       return true;
     }
 
@@ -219,7 +257,7 @@ const handleEditButton = async (interaction) => {
     await sendEphemeralResponse(interaction, {
       content: '⚠️ 모집글 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
       components: [],
-    });
+    }, { preferUpdate: true });
     return true;
   }
 };
@@ -232,7 +270,7 @@ const handleDeleteButton = async (interaction) => {
       await sendEphemeralResponse(interaction, {
         content: '🗑️ 삭제할 수 있는 파티 사냥 모집글이 없어요.',
         components: [],
-      });
+      }, { preferUpdate: true });
       return true;
     }
 
@@ -245,14 +283,51 @@ const handleDeleteButton = async (interaction) => {
           entries,
         }),
       ],
-    });
+    }, { preferUpdate: true });
     return true;
   } catch (error) {
     console.error('Failed to prepare delete selection:', error);
     await sendEphemeralResponse(interaction, {
       content: '⚠️ 모집글 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
       components: [],
+    }, { preferUpdate: true });
+    return true;
+  }
+};
+
+const handleJoinButton = async (interaction) => {
+  try {
+    const entries = await fetchPartyRecruitEntriesByKind({
+      kind: partyHuntingKind,
+      limit: 25,
     });
+    const joinableEntries = filterJoinableEntries(entries, interaction.user.id);
+
+    if (!joinableEntries.length) {
+      await sendEphemeralResponse(interaction, {
+        content: '🙋 신청할 수 있는 파티가 없어요. 잠시 후 다시 확인해주세요.',
+        components: [],
+      }, { preferUpdate: true });
+      return true;
+    }
+
+    await sendEphemeralResponse(interaction, {
+      content: '🙋 신청할 파티를 선택해주세요.',
+      components: [
+        buildRecruitSelectRow({
+          customId: PARTY_HUNTING_JOIN_SELECT_ID,
+          placeholder: '신청할 모집글 선택',
+          entries: joinableEntries,
+        }),
+      ],
+    }, { preferUpdate: true });
+    return true;
+  } catch (error) {
+    console.error('Failed to prepare join selection:', error);
+    await sendEphemeralResponse(interaction, {
+      content: '⚠️ 파티 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
+      components: [],
+    }, { preferUpdate: true });
     return true;
   }
 };
@@ -260,20 +335,20 @@ const handleDeleteButton = async (interaction) => {
 const handleEditSelect = async (interaction) => {
   const recruitId = Number(interaction.values?.[0]);
   if (!recruitId) {
-    await interaction.reply({
+    await sendEphemeralResponse(interaction, {
       content: '⚠️ 선택한 모집글을 확인하지 못했어요.',
-      ephemeral: true,
-    });
+      components: [],
+    }, { preferUpdate: true });
     return true;
   }
 
   try {
     const entry = await fetchPartyRecruitEntryById(recruitId);
     if (!entry || entry.userDiscordId !== String(interaction.user.id)) {
-      await interaction.reply({
+      await sendEphemeralResponse(interaction, {
         content: '⚠️ 해당 모집글을 수정할 수 없어요.',
-        ephemeral: true,
-      });
+        components: [],
+      }, { preferUpdate: true });
       return true;
     }
 
@@ -288,10 +363,10 @@ const handleEditSelect = async (interaction) => {
     return true;
   } catch (error) {
     console.error('Failed to open edit modal from selection:', error);
-    await interaction.reply({
+    await sendEphemeralResponse(interaction, {
       content: '⚠️ 모집글 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
-      ephemeral: true,
-    });
+      components: [],
+    }, { preferUpdate: true });
     return true;
   }
 };
@@ -299,10 +374,10 @@ const handleEditSelect = async (interaction) => {
 const handleDeleteSelect = async (interaction) => {
   const recruitId = Number(interaction.values?.[0]);
   if (!recruitId) {
-    await interaction.reply({
+    await sendEphemeralResponse(interaction, {
       content: '⚠️ 선택한 모집글을 확인하지 못했어요.',
-      ephemeral: true,
-    });
+      components: [],
+    }, { preferUpdate: true });
     return true;
   }
 
@@ -322,15 +397,50 @@ const handleDeleteSelect = async (interaction) => {
       interaction,
       prefix: '🗑️ 파티 사냥 모집을 삭제했어요.',
       fallbackLines: [`• 삭제된 모집글 ID: ${recruitId}`],
+      preferUpdate: true,
     });
     return true;
   } catch (error) {
     console.error('Failed to delete party hunting recruit:', error);
     const friendlyMessage = translateRecruitError(error);
-    await interaction.reply({
+    await sendEphemeralResponse(interaction, {
       content: friendlyMessage || '⚠️ 모집글을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.',
-      ephemeral: true,
+      components: [],
+    }, { preferUpdate: true });
+    return true;
+  }
+};
+
+const handleJoinSelect = async (interaction) => {
+  const recruitId = Number(interaction.values?.[0]);
+  if (!recruitId) {
+    await sendEphemeralResponse(interaction, {
+      content: '⚠️ 선택한 모집글을 확인하지 못했어요.',
+      components: [],
+    }, { preferUpdate: true });
+    return true;
+  }
+
+  try {
+    const updated = await joinPartyRecruit({
+      recruitId,
+      discordUser: interaction.user,
     });
+
+    await respondWithListOrFallback({
+      interaction,
+      prefix: `🙋 ${updated.title} 파티에 신청했어요.`,
+      fallbackLines: [`• 현재 인원: ${updated.memberCount}/${updated.memberLimit}`],
+      preferUpdate: true,
+    });
+    return true;
+  } catch (error) {
+    console.error('Failed to join party recruit:', error);
+    const friendlyMessage = translateRecruitError(error);
+    await sendEphemeralResponse(interaction, {
+      content: friendlyMessage || '⚠️ 파티 신청에 실패했어요. 잠시 후 다시 시도해주세요.',
+      components: [],
+    }, { preferUpdate: true });
     return true;
   }
 };
@@ -414,7 +524,12 @@ const replyWithValidationError = async (interaction, errors) => {
   await interaction.reply({ content, ephemeral: true });
 };
 
-const respondWithListOrFallback = async ({ interaction, prefix, fallbackLines = [] }) => {
+const respondWithListOrFallback = async ({
+  interaction,
+  prefix,
+  fallbackLines = [],
+  preferUpdate = false,
+}) => {
   try {
     const entries = await fetchPartyRecruitEntriesByKind({
       kind: partyHuntingKind,
@@ -426,14 +541,14 @@ const respondWithListOrFallback = async ({ interaction, prefix, fallbackLines = 
     await sendEphemeralResponse(interaction, {
       content,
       components: buildPartyListComponents(),
-    });
+    }, { preferUpdate });
   } catch (error) {
     console.error('Failed to load party hunting list:', error);
     const content = [prefix, ...fallbackLines].filter(Boolean).join('\n');
     await sendEphemeralResponse(interaction, {
       content,
       components: [],
-    });
+    }, { preferUpdate });
   }
 };
 
@@ -498,9 +613,9 @@ const handleCreateSubmit = async (interaction, payload) => {
     return true;
   } catch (error) {
     console.error('Failed to store party hunting recruit:', error);
-    await interaction.reply({
+    await sendEphemeralResponse(interaction, {
       content: '⚠️ 모집 정보를 저장하지 못했어요. 잠시 후 다시 시도해주세요.',
-      ephemeral: true,
+      components: [],
     });
     return true;
   }
@@ -537,9 +652,9 @@ const handleEditSubmit = async (interaction, payload, recruitId) => {
   } catch (error) {
     console.error('Failed to edit party hunting recruit:', error);
     const friendlyMessage = translateRecruitError(error);
-    await interaction.reply({
+    await sendEphemeralResponse(interaction, {
       content: friendlyMessage || '⚠️ 모집 정보를 수정하지 못했어요. 잠시 후 다시 시도해주세요.',
-      ephemeral: true,
+      components: [],
     });
     return true;
   }
@@ -572,6 +687,10 @@ const handlePartyHuntingInteraction = async (interaction) => {
       return true;
     }
 
+    if (interaction.customId === PARTY_HUNTING_JOIN_BUTTON_ID) {
+      return handleJoinButton(interaction);
+    }
+
     if (interaction.customId === PARTY_HUNTING_EDIT_BUTTON_ID) {
       return handleEditButton(interaction);
     }
@@ -588,6 +707,10 @@ const handlePartyHuntingInteraction = async (interaction) => {
 
     if (interaction.customId === PARTY_HUNTING_DELETE_SELECT_ID) {
       return handleDeleteSelect(interaction);
+    }
+
+    if (interaction.customId === PARTY_HUNTING_JOIN_SELECT_ID) {
+      return handleJoinSelect(interaction);
     }
   }
 

@@ -2,12 +2,13 @@ const {
    fetchPartyRecruitEntryById,
    deletePartyRecruitEntry,
    joinPartyRecruit,
+   cancelPartyRecruitApplication,
 } = require('../../lib/party-recruit-service');
 const { refreshPinnedMessage } = require('../../lib/pinned-message-refresh');
 const { sendEphemeralResponse } = require('../../lib/ephemeral-response');
 const { buildRecruitModal } = require('../../lib/recruit-board/ui');
 const { buildEditModalId, getBoardLabel } = require('../../lib/recruit-board/context');
-const { translateRecruitError } = require('../../lib/recruit-board/utils');
+const { translateRecruitError, formatMemberMentions } = require('../../lib/recruit-board/utils');
 const { respondWithListOrFallback } = require('./responses');
 
 const handleEditSelect = async (interaction, board) => {
@@ -130,11 +131,20 @@ const handleJoinSelect = async (interaction, board) => {
          discordUser: interaction.user,
       });
 
+      const applicantMentions = formatMemberMentions(updated.members);
+      const prefixLines = [`🙋 ${updated.title} 모집에 신청했어요.`];
+      if (applicantMentions) {
+         prefixLines.push(`• 신청자: ${applicantMentions}`);
+      }
+
       await respondWithListOrFallback({
          interaction,
          board,
-         prefix: `🙋 ${updated.title} 모집에 신청했어요.`,
-         fallbackLines: [`• 현재 인원: ${updated.memberCount}/${updated.memberLimit}`],
+         prefix: prefixLines.join('\n'),
+         fallbackLines: [
+            `• 현재 인원: ${updated.memberCount}/${updated.memberLimit}`,
+            applicantMentions ? `• 신청자: ${applicantMentions}` : null,
+         ].filter(Boolean),
          preferUpdate: true,
       });
       return true;
@@ -145,6 +155,58 @@ const handleJoinSelect = async (interaction, board) => {
          interaction,
          {
             content: friendlyMessage || '⚠️ 신청에 실패했어요. 잠시 후 다시 시도해주세요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+};
+
+const handleCancelSelect = async (interaction, board) => {
+   const recruitId = Number(interaction.values?.[0]);
+   if (!recruitId) {
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: '⚠️ 선택한 모집글을 확인하지 못했어요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+
+   try {
+      const updated = await cancelPartyRecruitApplication({
+         recruitId,
+         discordUser: interaction.user,
+      });
+
+      const applicantMentions = formatMemberMentions(updated.members);
+      const prefixLines = [`❌ ${updated.title} 모집 신청을 취소했어요.`];
+      if (applicantMentions) {
+         prefixLines.push(`• 남은 신청자: ${applicantMentions}`);
+      }
+
+      await respondWithListOrFallback({
+         interaction,
+         board,
+         prefix: prefixLines.join('\n'),
+         fallbackLines: [
+            `• 현재 인원: ${updated.memberCount}/${updated.memberLimit}`,
+            applicantMentions ? `• 남은 신청자: ${applicantMentions}` : null,
+         ].filter(Boolean),
+         preferUpdate: true,
+      });
+      return true;
+   } catch (error) {
+      console.error('Failed to cancel recruit application:', error);
+      const friendlyMessage = translateRecruitError(error);
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: friendlyMessage || '⚠️ 신청을 취소하지 못했어요. 잠시 후 다시 시도해주세요.',
             components: [],
          },
          { preferUpdate: true },
@@ -164,6 +226,10 @@ const handleSelectInteraction = async (interaction, board) => {
 
    if (interaction.customId === board.ids.joinSelect) {
       return handleJoinSelect(interaction, board);
+   }
+
+   if (interaction.customId === board.ids.cancelSelect) {
+      return handleCancelSelect(interaction, board);
    }
 
    return false;

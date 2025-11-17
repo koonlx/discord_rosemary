@@ -3,6 +3,7 @@ const { replyWithRecruitList } = require('./responses');
 const { handleButtonInteraction } = require('./buttons');
 const { handleSelectInteraction } = require('./selects');
 const { handleModalInteraction } = require('./modals');
+const { handlePersonalInteraction, isPersonalInteraction } = require('./personal');
 
 const findBoardByCustomId = customId => {
    if (!customId) {
@@ -44,6 +45,10 @@ const handlePartyHuntingInteraction = async interaction => {
 
    if (!isRelevantInteraction) {
       return false;
+   }
+
+   if (isPersonalInteraction(interaction)) {
+      return handlePersonalInteraction(interaction);
    }
 
    const board = findBoardByCustomId(interaction.customId);

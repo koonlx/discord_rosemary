@@ -1,0 +1,174 @@
+const {
+   fetchPartyRecruitEntryById,
+   deletePartyRecruitEntry,
+   joinPartyRecruit,
+} = require('../../lib/party-recruit-service');
+const { refreshPinnedMessage } = require('../../lib/pinned-message-refresh');
+const { sendEphemeralResponse } = require('../../lib/ephemeral-response');
+const { buildRecruitModal } = require('../../lib/recruit-board/ui');
+const { buildEditModalId, getBoardLabel } = require('../../lib/recruit-board/context');
+const { translateRecruitError } = require('../../lib/recruit-board/utils');
+const { respondWithListOrFallback } = require('./responses');
+
+const handleEditSelect = async (interaction, board) => {
+   const recruitId = Number(interaction.values?.[0]);
+   if (!recruitId) {
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: '⚠️ 선택한 모집글을 확인하지 못했어요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+
+   try {
+      const entry = await fetchPartyRecruitEntryById(recruitId);
+      if (!entry || entry.userDiscordId !== String(interaction.user.id)) {
+         await sendEphemeralResponse(
+            interaction,
+            {
+               content: '⚠️ 해당 모집글을 수정할 수 없어요.',
+               components: [],
+            },
+            { preferUpdate: true },
+         );
+         return true;
+      }
+
+      const modal = buildRecruitModal(board, {
+         customId: buildEditModalId(board, entry.id),
+         title: entry.title,
+         time: entry.time,
+         condition: entry.condition ?? '',
+         memberLimit: entry.memberLimit,
+      });
+      await interaction.showModal(modal);
+      return true;
+   } catch (error) {
+      console.error('Failed to open edit modal from selection:', error);
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: '⚠️ 모집글 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+};
+
+const handleDeleteSelect = async (interaction, board) => {
+   const recruitId = Number(interaction.values?.[0]);
+   if (!recruitId) {
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: '⚠️ 선택한 모집글을 확인하지 못했어요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+
+   try {
+      await deletePartyRecruitEntry({
+         recruitId,
+         discordUser: interaction.user,
+      });
+
+      try {
+         await refreshPinnedMessage({ client: interaction.client });
+      } catch (error) {
+         console.error('Failed to refresh pinned message after recruit deletion:', error);
+      }
+
+      await respondWithListOrFallback({
+         interaction,
+         board,
+         prefix: `🗑️ ${getBoardLabel(board)} 모집을 삭제했어요.`,
+         fallbackLines: [`• 삭제된 모집글 ID: ${recruitId}`],
+         preferUpdate: true,
+      });
+      return true;
+   } catch (error) {
+      console.error('Failed to delete recruit:', error);
+      const friendlyMessage = translateRecruitError(error);
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: friendlyMessage || '⚠️ 모집글을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+};
+
+const handleJoinSelect = async (interaction, board) => {
+   const recruitId = Number(interaction.values?.[0]);
+   if (!recruitId) {
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: '⚠️ 선택한 모집글을 확인하지 못했어요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+
+   try {
+      const updated = await joinPartyRecruit({
+         recruitId,
+         discordUser: interaction.user,
+      });
+
+      await respondWithListOrFallback({
+         interaction,
+         board,
+         prefix: `🙋 ${updated.title} 모집에 신청했어요.`,
+         fallbackLines: [`• 현재 인원: ${updated.memberCount}/${updated.memberLimit}`],
+         preferUpdate: true,
+      });
+      return true;
+   } catch (error) {
+      console.error('Failed to join recruit:', error);
+      const friendlyMessage = translateRecruitError(error);
+      await sendEphemeralResponse(
+         interaction,
+         {
+            content: friendlyMessage || '⚠️ 신청에 실패했어요. 잠시 후 다시 시도해주세요.',
+            components: [],
+         },
+         { preferUpdate: true },
+      );
+      return true;
+   }
+};
+
+const handleSelectInteraction = async (interaction, board) => {
+   if (interaction.customId === board.ids.editSelect) {
+      return handleEditSelect(interaction, board);
+   }
+
+   if (interaction.customId === board.ids.deleteSelect) {
+      return handleDeleteSelect(interaction, board);
+   }
+
+   if (interaction.customId === board.ids.joinSelect) {
+      return handleJoinSelect(interaction, board);
+   }
+
+   return false;
+};
+
+module.exports = {
+   handleSelectInteraction,
+};

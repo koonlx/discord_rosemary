@@ -3,6 +3,7 @@ const config = require('./lib/config');
 const { cleanBotActivity } = require('./lib/activity-cleanup');
 const { refreshPinnedMessage } = require('./lib/pinned-message-refresh');
 const { handlePartyHuntingInteraction } = require('./commands/recruit-board');
+const { sendEphemeralResponse } = require('./lib/ephemeral-response');
 
 const client = new Client({ intents: config.clientIntents });
 
@@ -52,16 +53,10 @@ client.on(Events.InteractionCreate, async interaction => {
          return;
       }
 
-      const payload = {
+      await sendEphemeralResponse(interaction, {
          content: '⚠️ 요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.',
-         ephemeral: true,
-      };
-
-      if (interaction.deferred || interaction.replied) {
-         await interaction.followUp(payload);
-      } else {
-         await interaction.reply(payload);
-      }
+         components: [],
+      });
    }
 });
 

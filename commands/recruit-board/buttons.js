@@ -3,26 +3,35 @@ const {
    fetchPartyRecruitsByUser,
    fetchPartyRecruitsByMember,
 } = require('../../lib/party-recruit-service');
+const { isRecruitManager } = require('../../lib/permissions');
 const { sendEphemeralResponse } = require('../../lib/ephemeral-response');
 const { buildRecruitSelectRow, buildRecruitModal } = require('../../lib/recruit-board/ui');
 const { buildEditModalId, getBoardLabel } = require('../../lib/recruit-board/context');
 const { filterJoinableEntries } = require('../../lib/recruit-board/utils');
 
-const fetchUserRecruits = (interaction, board) =>
-   fetchPartyRecruitsByUser({
+const fetchManageableRecruits = (interaction, board) => {
+   if (isRecruitManager(interaction.user)) {
+      return fetchPartyRecruitEntriesByKind({
+         kind: board.kind,
+         limit: 25,
+      });
+   }
+
+   return fetchPartyRecruitsByUser({
       discordUserId: interaction.user.id,
       kind: board.kind,
    });
+};
 
 const handleEditButton = async (interaction, board) => {
    try {
-      const entries = await fetchUserRecruits(interaction, board);
+      const entries = await fetchManageableRecruits(interaction, board);
 
       if (!entries.length) {
          await sendEphemeralResponse(
             interaction,
             {
-               content: `✏️ 작성한 ${getBoardLabel(board)} 모집글이 없어요.`,
+               content: `✏️ 수정할 ${getBoardLabel(board)} 모집글이 없어요.`,
                components: [],
             },
             { preferUpdate: true },
@@ -74,7 +83,7 @@ const handleEditButton = async (interaction, board) => {
 
 const handleDeleteButton = async (interaction, board) => {
    try {
-      const entries = await fetchUserRecruits(interaction, board);
+      const entries = await fetchManageableRecruits(interaction, board);
 
       if (!entries.length) {
          await sendEphemeralResponse(

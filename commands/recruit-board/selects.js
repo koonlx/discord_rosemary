@@ -4,12 +4,21 @@ const {
    joinPartyRecruit,
    cancelPartyRecruitApplication,
 } = require('../../lib/party-recruit-service');
+const { isRecruitManager } = require('../../lib/permissions');
 const { refreshPinnedMessage } = require('../../lib/pinned-message-refresh');
 const { sendEphemeralResponse } = require('../../lib/ephemeral-response');
 const { buildRecruitModal } = require('../../lib/recruit-board/ui');
 const { buildEditModalId, getBoardLabel } = require('../../lib/recruit-board/context');
 const { translateRecruitError, formatMemberMentions } = require('../../lib/recruit-board/utils');
 const { respondWithListOrFallback } = require('./responses');
+
+const canManageSelectedEntry = (entry, user) => {
+   if (!entry || !user) {
+      return false;
+   }
+
+   return entry.userDiscordId === String(user.id) || isRecruitManager(user);
+};
 
 const handleEditSelect = async (interaction, board) => {
    const recruitId = Number(interaction.values?.[0]);
@@ -27,7 +36,19 @@ const handleEditSelect = async (interaction, board) => {
 
    try {
       const entry = await fetchPartyRecruitEntryById(recruitId);
-      if (!entry || entry.userDiscordId !== String(interaction.user.id)) {
+      if (!entry) {
+         await sendEphemeralResponse(
+            interaction,
+            {
+               content: '⚠️ 해당 모집글을 찾을 수 없어요.',
+               components: [],
+            },
+            { preferUpdate: true },
+         );
+         return true;
+      }
+
+      if (!canManageSelectedEntry(entry, interaction.user)) {
          await sendEphemeralResponse(
             interaction,
             {
@@ -77,6 +98,31 @@ const handleDeleteSelect = async (interaction, board) => {
    }
 
    try {
+      const entry = await fetchPartyRecruitEntryById(recruitId);
+      if (!entry) {
+         await sendEphemeralResponse(
+            interaction,
+            {
+               content: '⚠️ 해당 모집글을 찾을 수 없어요.',
+               components: [],
+            },
+            { preferUpdate: true },
+         );
+         return true;
+      }
+
+      if (!canManageSelectedEntry(entry, interaction.user)) {
+         await sendEphemeralResponse(
+            interaction,
+            {
+               content: '⚠️ 해당 모집글을 삭제할 수 없어요.',
+               components: [],
+            },
+            { preferUpdate: true },
+         );
+         return true;
+      }
+
       await deletePartyRecruitEntry({
          recruitId,
          discordUser: interaction.user,

@@ -1,14 +1,16 @@
-const {
-   createPartyRecruitEntry,
-   updatePartyRecruitEntry,
-} = require('../../lib/party-recruit-service');
+const { createPartyRecruitEntry, updatePartyRecruitEntry } = require('../../lib/party-recruit-service');
 const { refreshPinnedMessage } = require('../../lib/pinned-message-refresh');
 const { sendEphemeralResponse, replyWithValidationError } = require('../../lib/ephemeral-response');
 const { getBoardLabel, parseEditModalId } = require('../../lib/recruit-board/context');
-const { collectModalInput, translateRecruitError } = require('../../lib/recruit-board/utils');
+const {
+   collectModalInput,
+   translateRecruitError,
+   parseHostAndMembersInput,
+} = require('../../lib/recruit-board/utils');
+const { isRecruitManager } = require('../../lib/permissions');
 const { respondWithListOrFallback } = require('./responses');
 
-const handleCreateSubmit = async (interaction, payload, board) => {
+const handleCreateSubmit = async (interaction, payload, board, hostDiscordId, applicantDiscordIds) => {
    try {
       await createPartyRecruitEntry({
          discordUser: interaction.user,
@@ -17,6 +19,8 @@ const handleCreateSubmit = async (interaction, payload, board) => {
          kind: board.kind,
          condition: payload.condition,
          memberLimit: payload.memberLimit,
+         hostDiscordId,
+         applicantDiscordIds,
       });
 
       try {
@@ -47,7 +51,7 @@ const handleCreateSubmit = async (interaction, payload, board) => {
    }
 };
 
-const handleEditSubmit = async (interaction, payload, recruitId, board) => {
+const handleEditSubmit = async (interaction, payload, recruitId, board, hostDiscordId, applicantDiscordIds) => {
    try {
       const updated = await updatePartyRecruitEntry({
          recruitId,
@@ -56,6 +60,8 @@ const handleEditSubmit = async (interaction, payload, recruitId, board) => {
          time: payload.time,
          condition: payload.condition,
          memberLimit: payload.memberLimit,
+         hostDiscordId,
+         applicantDiscordIds,
       });
 
       try {
@@ -90,6 +96,21 @@ const handleEditSubmit = async (interaction, payload, recruitId, board) => {
 const handleModalInteraction = async (interaction, board) => {
    const recruitId = parseEditModalId(board, interaction.customId);
    const payload = collectModalInput(interaction);
+   const canOverrideHost = isRecruitManager(interaction.user);
+   const hostInputProvided = Boolean(payload.hostAssignmentInput);
+   let hostDiscordId = null;
+   let applicantDiscordIds = null;
+
+   if (canOverrideHost && hostInputProvided) {
+      const parsed = parseHostAndMembersInput(payload.hostAssignmentInput);
+      hostDiscordId = parsed.hostDiscordId;
+      if (parsed.membersProvided) {
+         applicantDiscordIds = parsed.applicantDiscordIds ?? [];
+      }
+      if (parsed.errors.length) {
+         payload.errors.push(...parsed.errors);
+      }
+   }
 
    if (payload.errors.length) {
       await replyWithValidationError(interaction, payload.errors);
@@ -97,10 +118,10 @@ const handleModalInteraction = async (interaction, board) => {
    }
 
    if (recruitId) {
-      return handleEditSubmit(interaction, payload, recruitId, board);
+      return handleEditSubmit(interaction, payload, recruitId, board, hostDiscordId, applicantDiscordIds);
    }
 
-   return handleCreateSubmit(interaction, payload, board);
+   return handleCreateSubmit(interaction, payload, board, hostDiscordId, applicantDiscordIds);
 };
 
 module.exports = {

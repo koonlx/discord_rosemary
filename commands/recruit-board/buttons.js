@@ -7,7 +7,7 @@ const { isRecruitManager } = require('../../lib/permissions');
 const { sendEphemeralResponse } = require('../../lib/ephemeral-response');
 const { buildRecruitSelectRow, buildRecruitModal } = require('../../lib/recruit-board/ui');
 const { buildEditModalId, getBoardLabel } = require('../../lib/recruit-board/context');
-const { filterJoinableEntries } = require('../../lib/recruit-board/utils');
+const { filterJoinableEntries, formatHostInputValue } = require('../../lib/recruit-board/utils');
 
 const fetchManageableRecruits = (interaction, board) => {
    if (isRecruitManager(interaction.user)) {
@@ -47,6 +47,8 @@ const handleEditButton = async (interaction, board) => {
             time: entry.time,
             condition: entry.condition ?? '',
             memberLimit: entry.memberLimit,
+            hostInputValue: formatHostInputValue(entry),
+            enableHostInput: isRecruitManager(interaction.user),
          });
          await interaction.showModal(modal);
          return true;
@@ -225,7 +227,7 @@ const handleJoinButton = async (interaction, board) => {
 
 const handleButtonInteraction = async (interaction, board) => {
    if (interaction.customId === board.ids.createButton) {
-      await interaction.showModal(buildRecruitModal(board));
+      await interaction.showModal(buildRecruitModal(board, { enableHostInput: isRecruitManager(interaction.user) }));
       return true;
    }
 

@@ -6,6 +6,7 @@ const {
    deletePartyRecruitEntry,
    cancelPartyRecruitApplication,
 } = require('../../lib/party-recruit-service');
+const { isRecruitManager } = require('../../lib/permissions');
 const { sendEphemeralResponse } = require('../../lib/ephemeral-response');
 const {
    buildPersonalRecruitSummary,
@@ -14,7 +15,7 @@ const {
    buildRecruitModal,
 } = require('../../lib/recruit-board/ui');
 const { buildEditModalId, findBoardByKind } = require('../../lib/recruit-board/context');
-const { translateRecruitError, formatMemberMentions } = require('../../lib/recruit-board/utils');
+const { translateRecruitError, formatMemberMentions, formatHostInputValue } = require('../../lib/recruit-board/utils');
 const { refreshPinnedMessage } = require('../../lib/pinned-message-refresh');
 
 const PERSONAL_BUTTONS = config.myRecruitSummaryButton || {};
@@ -86,6 +87,8 @@ const showEditModalForEntry = async (interaction, entry) => {
       time: entry.time,
       condition: entry.condition ?? '',
       memberLimit: entry.memberLimit,
+      hostInputValue: formatHostInputValue(entry),
+      enableHostInput: isRecruitManager(interaction.user),
    });
    await interaction.showModal(modal);
    return true;

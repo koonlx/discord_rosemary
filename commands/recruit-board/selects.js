@@ -9,7 +9,7 @@ const { refreshPinnedMessage } = require('../../lib/pinned-message-refresh');
 const { sendEphemeralResponse } = require('../../lib/ephemeral-response');
 const { buildRecruitModal } = require('../../lib/recruit-board/ui');
 const { buildEditModalId, getBoardLabel } = require('../../lib/recruit-board/context');
-const { translateRecruitError, formatMemberMentions } = require('../../lib/recruit-board/utils');
+const { translateRecruitError, formatMemberMentions, formatHostInputValue } = require('../../lib/recruit-board/utils');
 const { respondWithListOrFallback } = require('./responses');
 
 const canManageSelectedEntry = (entry, user) => {
@@ -66,6 +66,8 @@ const handleEditSelect = async (interaction, board) => {
          time: entry.time,
          condition: entry.condition ?? '',
          memberLimit: entry.memberLimit,
+         hostInputValue: formatHostInputValue(entry),
+         enableHostInput: isRecruitManager(interaction.user),
       });
       await interaction.showModal(modal);
       return true;
